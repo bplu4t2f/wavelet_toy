@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="content-type" content="text/html;charset=utf-8"/>
+<title>wavelet toy</title>
+
+<style>
+body {
+background-color: #ddd;
+}
+</style>
+
+<script>"use strict";
+document.addEventListener("DOMContentLoaded", init);
+
+let file_picker;
+let img;
+let load_error_label;
+let main_canvas_pass_major;
+let main_canvas_pass_minor;
+
+function init()
+{
+	load_error_label = document.getElementById("load_error_label");
+
+	img = document.getElementById("img");
+	img.onload = recalculate;
+	img.onerror = handle_load_error;
+	
+	file_picker = document.getElementById("file");
+	file_picker.addEventListener("change", update_file);
+	
+	main_canvas_pass_major = document.getElementById("main_canvas_pass_major");
+	main_canvas_pass_minor = document.getElementById("main_canvas_pass_minor");
+	
+	// In case we still have a file from last time.
+	update_file();
+	
+	let example_images = document.getElementById("example_images");
+	for (let child of example_images.children)
+	{
+		// child is an <img>
+		let child_src = child.src;
+		child.addEventListener("click", function()
+		{
+			file_picker.value = null;
+			img.src = child_src;
+		});
+	}
+}
+
+function update_file()
+{
+	let files = file_picker.files;
+	let file = files[0];
+	if (!file)
+	{
+		return;
+	}
+	
+	let url = URL.createObjectURL(file);
+	if (!url)
+	{
+		return;
+	}
+	
+	img.src = url;
+	// recalculate_input_image will be called when loaded
+}
+
+function handle_load_error(e)
+{
+	load_error_label.textContent = e;
+}
+
+function recalculate()
+{
+	load_error_label.textContent = null;
+	
+	do_transform(main_canvas_pass_major, transform_2d_pass_major);
+	do_transform(main_canvas_pass_minor, transform_2d_pass_minor);
+}
+
+function do_transform(output_canvas, transform_function)
+{
+	let internal_canvas = document.createElement("canvas");
+	// Must be a power of 2
+	let width = 256;
+	let height = 256;
+	internal_canvas.width = width;
+	internal_canvas.height = height;
+	let ctx = internal_canvas.getContext("2d");
+	ctx.drawImage(img, 0, 0, width, height);
+	
+	let data_object = ctx.getImageData(0, 0, width, height);
+	let data = data_object.data; // ClampedUint8Array
+	let data32 = new Uint32Array(data.buffer);
+	
+	let result_data = transform_function(data32, width, height);
+	for (let i = 0; i < data32.length; ++i)
+	{
+		data32[i] = result_data[i];
+	}
+	
+	ctx.putImageData(data_object, 0, 0);
+	let output_canvas_ctx = output_canvas.getContext("2d");
+	output_canvas_ctx.imageSmoothingEnabled = false;
+	output_canvas_ctx.drawImage(internal_canvas, 0, 0, output_canvas.width, output_canvas.height);
+}
+
+function transform_2d_pass_major(data, width, height)
+{
+	// This transform doesn't work inplace, we'd need a buffer of atleast width/2 elements.
+	// Since we can't do it inplace anyway, we just allocate an entirely new result array for the lulz.
+	let result = new Uint32Array(data.length);
+	// data is assumed to be Uint32Array
+	let num_pixels_total = width * height;
+
+	// stride is equal to width because every array element is a Uint32.
+	let stride = width;
+	
+	let half_point = width;
+	while (half_point > 1)
+	{
+		let last_half_point = half_point;
+		half_point >>= 1;
+		
+		//
+		// Transform rows horizontally
+		//
+		
+		for (let y = 0; y < last_half_point; ++y)
+		{
+			let row_start = y * stride;
+			for (let x = 0; x < half_point; ++x)
+			{
+				let right_operand =                    ((data[row_start + x * 2 + 1] & 0x00fefefe) >>> 1);
+				result[row_start + x] =               (((data[row_start + x * 2    ] & 0xfefefefe) >>> 1) | 0xFF000000) + right_operand;
+				result[row_start + x + half_point] =  (((data[row_start + x * 2    ] & 0xfefefefe) >>> 1) | 0xFF808080) - right_operand;
+			}
+			
+			for (let x = 0; x < width; ++x)
+			{
+				data[row_start + x] = result[row_start + x];
+			}
+		}
+	
+		//
+		// Transform columns vertically
+		//
+		
+		for (let col = 0; col < last_half_point; ++col)
+		{
+			for (let y = 0; y < half_point; ++y)
+			{
+				let right_operand =                        ((data[(y*2+1) * stride + col] & 0x00fefefe) >>> 1);
+				result[ y               * stride + col] = (((data[ y*2    * stride + col] & 0xfefefefe) >>> 1) | 0xFF000000) + right_operand;
+				result[(y + half_point) * stride + col] = (((data[ y*2    * stride + col] & 0xfefefefe) >>> 1) | 0xFF808080) - right_operand;
+			}
+			
+			for (let y = 0; y < height; ++y)
+			{
+				data[y * stride + col] = result[y * stride + col];
+			}
+		}
+	}	
+	
+	return result;
+}
+
+function transform_2d_pass_minor(data, width, height)
+{
+	// This transform doesn't work inplace, we'd need a buffer of atleast width/2 elements.
+	// Since we can't do it inplace anyway, we just allocate an entirely new result array for the lulz.
+	let result = new Uint32Array(data.length);
+	// data is assumed to be Uint32Array
+	let num_pixels_total = width * height;
+
+	// stride is equal to width because every array element is a Uint32.
+	let stride = width;
+	
+	//
+	// Transform rows horizontally
+	//
+	
+	for (let row_start = 0; row_start < num_pixels_total; row_start += stride)
+	{
+		let half_point = width;
+		while (half_point > 1)
+		{
+			half_point >>= 1;
+			for (let x = 0; x < half_point; ++x)
+			{
+				let right_operand =                    ((data[row_start + x * 2 + 1] & 0x00fefefe) >>> 1);
+				result[row_start + x] =               (((data[row_start + x * 2    ] & 0xfefefefe) >>> 1) | 0xFF000000) + right_operand;
+				result[row_start + x + half_point] =  (((data[row_start + x * 2    ] & 0xfefefefe) >>> 1) | 0xFF808080) - right_operand;
+			}
+			
+			for (let x = 0; x < width; ++x)
+			{
+				data[row_start + x] = result[row_start + x];
+			}
+		}
+	}
+	
+	//
+	// Transform columns vertically
+	//
+	
+	for (let col = 0; col < width; ++col)
+	{
+		let half_point = height;
+		while (half_point > 1)
+		{
+			half_point >>= 1;
+			for (let y = 0; y < half_point; ++y)
+			{
+				let right_operand =                        ((data[(y*2+1) * stride + col] & 0x00fefefe) >>> 1);
+				result[ y               * stride + col] = (((data[ y*2    * stride + col] & 0xfefefefe) >>> 1) | 0xFF000000) + right_operand;
+				result[(y + half_point) * stride + col] = (((data[ y*2    * stride + col] & 0xfefefefe) >>> 1) | 0xFF808080) - right_operand;
+			}
+			
+			for (let y = 0; y < height; ++y)
+			{
+				data[y * stride + col] = result[y * stride + col];
+			}
+		}
+	}
+	
+	return result;
+}
+
+</script>
+
+</head>
+<body>
+<p>Source image: <input type="file" accept="image/*" id="file"/></p>
+<p><canvas id="main_canvas_pass_major" width="512" height="512"></canvas>
+<canvas id="main_canvas_pass_minor" width="512" height="512"></canvas></p>
+<p><span id="load_error_label"></span><img id="img"></p>
+<p>Or pick one:</p>
+<div id="example_images">
+<img src="1.png"/>
+<img src="2.png"/>
+<img src="3.png"/>
+<img src="4.png"/>
+<img src="5.png"/>
+</div>
+</body>
+</html>
