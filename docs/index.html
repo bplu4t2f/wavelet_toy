@@ -7,7 +7,10 @@
 <style>
 body {
 background-color: #ddd;
-} 
+}
+div.container {
+display: inline-block;
+}
 </style>
 
 <script>"use strict";
@@ -235,8 +238,8 @@ function transform_2d_pass_minor(data, width, height)
 </head>
 <body>
 <p>Source image: <input type="file" accept="image/*" id="file"/></p>
-<p><canvas id="main_canvas_pass_major" width="512" height="512"></canvas>
-<canvas id="main_canvas_pass_minor" width="512" height="512"></canvas></p>
+<div class="container">Pass major:<br/><canvas id="main_canvas_pass_major" width="512" height="512"></canvas></div>
+<div class="container">Pass minor:<br/><canvas id="main_canvas_pass_minor" width="512" height="512"></canvas></div>
 <p><span id="load_error_label"></span><img id="img"></p>
 <p>Or pick one:</p>
 <div id="example_images">
